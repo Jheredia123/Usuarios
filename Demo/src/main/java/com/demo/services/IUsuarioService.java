@@ -10,6 +10,6 @@ public interface IUsuarioService {
 
 	ResponseEntity<UsuarioResponseRest> getAll();
 
-	ResponseEntity<UsuarioResponseRest> save(UsuarioDto usuario);
+	ResponseEntity<UsuarioResponseRest> save(UsuarioDto usuario, String authorizationHeader);
 
 }

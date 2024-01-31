@@ -20,5 +20,8 @@ public class JwtConfig {
     public long getExpirationTime() {
         return expirationTime;
     }
+
+    
+
 }
 

@@ -1,5 +1,6 @@
 package com.demo.services;
 
+import java.security.Key;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -18,27 +19,24 @@ import com.demo.dto.UsuarioDto;
 import com.demo.jwtConfig.JwtConfig;
 import com.demo.model.Usuario;
 import com.demo.response.UsuarioResponseRest;
-import com.demo.utils.DuplicateEmailException;
 import com.demo.utils.EmailFormatException;
 import com.demo.utils.EmailValidator;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
-
+import io.jsonwebtoken.security.Keys;
 
 @Service
 public class UsuarioServiceImpl implements IUsuarioService {
 
 	@Autowired
 	private IUsuarioDao usuarioDao;
-	
 
-    @Autowired
-    private ModelMapper modelMapper;
-    
-    @Autowired
-    private JwtConfig jwt;
+	@Autowired
+	private ModelMapper modelMapper;
 
+	@Autowired
+	private JwtConfig jwt;
 
 	@Override
 	@Transactional(readOnly = true)
@@ -48,7 +46,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
 		try {
 			List<Usuario> usuario = usuarioDao.findAll();
-			if (!usuario.isEmpty()) {
+			if (usuario.size() > 0) {
 				response.getUsuarioResponse().setUsuario(usuario);
 				response.setMetadata("Respuesta ok ", "00", "Respuesta exitosa");
 				System.out.println(response.getMetadata());
@@ -67,10 +65,9 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
 	@Override
 	@Transactional(readOnly = true)
-	public ResponseEntity<UsuarioResponseRest> save(UsuarioDto usuario) {
+	public ResponseEntity<UsuarioResponseRest> save(UsuarioDto usuario, String authorizationHeader) {
 		UsuarioResponseRest response = new UsuarioResponseRest();
 		List<Usuario> list = new ArrayList<>();
-
 		try {
 			// Validar el formato del correo electrónico
 			if (!EmailValidator.isValidEmail(usuario.getEmail())) {
@@ -78,28 +75,38 @@ public class UsuarioServiceImpl implements IUsuarioService {
 			}
 			// Verificar si el correo ya está registrado
 			List<Usuario> usuariosBd = usuarioDao.findAll();
-			for (Usuario usu : usuariosBd) {
-				if (usuario.getEmail().equals(usu.getEmail())) {
-					throw new DuplicateEmailException("El correo ya registrado");
+			Usuario usuarioEntity = new Usuario();
+			if (usuariosBd.size() > 0) {					
+				for (Usuario usu : usuariosBd) {
+					if (usuario.getName().equals(usu.getName())) {
+						// usuario ya creado
+						usuarioEntity.setLastLogin(
+								Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
+						usuarioEntity
+								.setModified(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
+						usuarioEntity.setToken(authorizationHeader);
+						usuarioEntity.setActive(true);
+						usuarioEntity = usuarioDao.save(usuarioEntity);
+					} 
+				
 				}
+				list.add(usuarioEntity);
+				response.getUsuarioResponse().setUsuario(list);
+				response.setMetadata("Insercion correcta", "00", "Usuario insertado");
+			} else {
+				// usuario Nuevo
+				usuarioEntity.setModified(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
+				usuarioEntity.setToken(authorizationHeader);
+				usuarioEntity.setActive(true);
+				usuarioEntity.setLastLogin(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
+				usuarioEntity.setCreated(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
+				usuarioEntity = modelMapper.map(usuario, Usuario.class);
+
+				usuarioEntity = usuarioDao.save(usuarioEntity);
+				list.add(usuarioEntity);
+				response.getUsuarioResponse().setUsuario(list);
+				response.setMetadata("Insercion correcta", "00", "Usuario insertado");
 			}
-	
-			String token = generateJwtToken(usuario.getEmail());
-			Usuario usuarioEntity = modelMapper.map(usuario, Usuario.class);
-			
-			usuarioEntity.setCreated(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
-			usuarioEntity.setLastLogin(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
-			usuarioEntity.setModified(Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()));
-		
-			usuarioEntity.setToken(token);
-			usuarioEntity.setActive(true);
-
-			usuarioEntity = usuarioDao.save(usuarioEntity);
-
-
-			list.add(usuarioEntity);
-			response.getUsuarioResponse().setUsuario(list);
-			response.setMetadata("Insercion correcta", "00", "Usuario insertado");
 
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -110,12 +117,11 @@ public class UsuarioServiceImpl implements IUsuarioService {
 	}
 
 	private String generateJwtToken(String username) {
-	    return Jwts.builder()
-	            .setSubject(username)
-	            .setIssuedAt(new Date())
-	            .signWith(SignatureAlgorithm.HS256, "tuClaveSecreta") 
-	            .compact();
+		// Genera una clave segura para HS256
+		Key key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+
+		return Jwts.builder().setSubject(username).setIssuedAt(new Date())
+				.setExpiration(new Date(System.currentTimeMillis() + jwt.getExpirationTime())).signWith(key).compact();
 	}
-	
-	
+
 }
